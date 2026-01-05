@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Data Analysis | BigQuery Assistant</title>
+    <meta
+      name="description"
+      content="Chat with your BigQuery data using natural language powered by Gemini AI"
+    />
+
+    <!-- HTMX -->
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+
+    <!-- Chart.js for dynamic visualizations -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/static/professional.css" />
+  </head>
+  <body>
+    <div class="app-container">
+      <!-- Sidebar -->
+      <aside class="sidebar">
+        <!-- Logo Section -->
+        <div class="sidebar-header">
+          <div class="logo-container">
+            <svg
+              class="logo-icon"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"
+              ></path>
+            </svg>
+          </div>
+          <div>
+            <h1 class="app-title">BigQuery Chat</h1>
+            <p class="text-xs text-muted">BigQuery Data Assistant</p>
+          </div>
+        </div>
+
+        <!-- New Chat Button -->
+        <button
+          hx-post="/clear-chat"
+          hx-target="#chat-messages"
+          hx-swap="innerHTML"
+          class="new-chat-btn"
+        >
+          <svg
+            width="20"
+            height="20"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M12 4v16m8-8H4"
+            ></path>
+          </svg>
+          New Session
+        </button>
+
+        <!-- Recent Chats Section -->
+        <div
+          class="recent-chats-section"
+          style="flex: 1; overflow-y: auto; padding: 0 1.25rem"
+        >
+          <div class="tools-header">
+            <span>Recent Chats</span>
+          </div>
+
+          <div id="recent-chats-list">
+            {% for chat in recent_chats %}
+            <div
+              class="chat-item {% if chat.active %}active{% endif %}"
+              style="margin-bottom: 0.5rem; position: relative"
+            >
+              <a
+                href="/?session_id={{ chat.id }}"
+                style="text-decoration: none; display: block; padding: 0.75rem; border-radius: var(--radius-sm); border: 1px solid {% if chat.active %}var(--primary-border){% else %}var(--border-light){% endif %}; background: {% if chat.active %}var(--primary-light){% else %}var(--bg-white){% endif %}; color: var(--text-main); padding-right: 2.5rem;"
+              >
+                <div
+                  style="
+                    font-weight: 500;
+                    font-size: 0.85rem;
+                    margin-bottom: 0.25rem;
+                    white-space: nowrap;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                  "
+                >
+                  {{ chat.preview }}
+                </div>
+                <div style="font-size: 0.7rem; color: var(--text-muted)">
+                  {{ chat.date }}
+                </div>
+              </a>
+              <button
+                hx-post="/delete-session/{{ chat.id }}"
+                hx-confirm="Are you sure you want to delete this chat?"
+                style="
+                  position: absolute;
+                  right: 0.5rem;
+                  top: 50%;
+                  transform: translateY(-50%);
+                  background: transparent;
+                  border: none;
+                  color: var(--text-muted);
+                  cursor: pointer;
+                  padding: 0.25rem;
+                  border-radius: 4px;
+                  display: flex;
+                  align-items: center;
+                  justify-content: center;
+                "
+                onmouseover="this.style.color='var(--danger)'; this.style.backgroundColor='var(--danger-light)';"
+                onmouseout="this.style.color='var(--text-muted)'; this.style.backgroundColor='transparent';"
+              >
+                <svg
+                  width="14"
+                  height="14"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                  ></path>
+                </svg>
+              </button>
+            </div>
+            {% else %}
+            <div
+              style="
+                padding: 1rem;
+                text-align: center;
+                color: var(--text-muted);
+                font-size: 0.8rem;
+              "
+            >
+              No recent chats
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+      </aside>
+
+      <!-- Main Chat Area -->
+      <main class="main-content">
+        <!-- Header -->
+        <header class="chat-header">
+          <div>
+            <h2>Data Analysis</h2>
+            <p class="text-sm text-muted">
+              Analyze trends and query data using natural language
+            </p>
+          </div>
+        </header>
+
+        <!-- Chat Messages -->
+        <div id="chat-container" class="chat-container">
+          <div id="chat-messages" class="messages-wrapper">
+            {% if chat_history %}
+            <!-- Display existing chat history -->
+            {% for msg in chat_history %} {% if msg.role == 'user' %}
+            <div class="message-wrapper user">
+              <div class="message-bubble">
+                <p>{{ msg.content }}</p>
+              </div>
+            </div>
+            {% else %}
+            <div class="message-wrapper ai">
+              <div class="message-avatar">
+                <svg
+                  width="20"
+                  height="20"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"
+                  ></path>
+                </svg>
+              </div>
+              <div class="message-bubble">
+                <div class="prose-content">{{ msg.content | safe }}</div>
+              </div>
+            </div>
+            {% endif %} {% endfor %} {% else %}
+            <!-- Welcome Message -->
+            <div class="message">
+              <div class="message-avatar">
+                <svg
+                  width="20"
+                  height="20"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"
+                  ></path>
+                </svg>
+              </div>
+              <div class="message-content-box prose">
+                <p class="text-sm" style="margin-bottom: 0.5rem">
+                  Hello! I'm your BigQuery data assistant. How can I help you
+                  today?
+                </p>
+                <div class="welcome-card">
+                  <ul
+                    class="welcome-list"
+                    style="margin: 0; padding: 0; list-style: none"
+                  >
+                    <li>
+                      <svg
+                        width="16"
+                        height="16"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                        ></path>
+                      </svg>
+                      Query data naturally
+                    </li>
+                    <li>
+                      <svg
+                        width="16"
+                        height="16"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+                        ></path>
+                      </svg>
+                      Analyze trends and visualize them dynamically.
+                    </li>
+                  </ul>
+                </div>
+                <p class="text-xs text-muted">
+                  Try asking:
+                  <span
+                    class="text-primary"
+                    onclick="document.getElementById('message-input').value='Show me the available tables'; document.getElementById('chat-form').requestSubmit();"
+                    >"Show me the available tables"</span
+                  >
+                </p>
+              </div>
+            </div>
+            {% endif %}
+          </div>
+
+          <!-- Typing Indicator -->
+          <div
+            id="typing-indicator"
+            class="messages-wrapper hidden"
+            style="margin-top: 1rem"
+          >
+            <div class="message">
+              <div class="message-avatar">
+                <svg
+                  width="20"
+                  height="20"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"
+                  ></path>
+                </svg>
+              </div>
+              <div class="typing">
+                <div class="typing-dot"></div>
+                <div class="typing-dot"></div>
+                <div class="typing-dot"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Input Area -->
+        <div class="input-area">
+          <form
+            id="chat-form"
+            hx-post="/chat"
+            hx-target="#chat-messages"
+            hx-swap="beforeend"
+            hx-indicator="#typing-indicator"
+            class="input-wrapper"
+          >
+            <textarea
+              name="message"
+              id="message-input"
+              rows="1"
+              placeholder="Ask a question about your BigQuery data..."
+              class="chat-input"
+              onkeydown="handleKeyDown(event)"
+              oninput="autoResize(this)"
+            ></textarea>
+
+            <button type="submit" class="send-btn" aria-label="Send message">
+              <div class="loading-spinner hidden">
+                <div class="spinner" style="width: 16px; height: 16px"></div>
+              </div>
+              <svg
+                class="btn-icon"
+                width="20"
+                height="20"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"
+                ></path>
+              </svg>
+            </button>
+          </form>
+        </div>
+      </main>
+    </div>
+
+    <script>
+      // Auto-scroll to bottom when new messages arrive
+      document.body.addEventListener("htmx:afterSwap", function (event) {
+        if (event.detail.target.id === "chat-messages") {
+          const container = document.getElementById("chat-container");
+          container.scrollTo({
+            top: container.scrollHeight,
+            behavior: "smooth",
+          });
+
+          // Clear the input
+          const input = document.getElementById("message-input");
+          input.value = "";
+          input.style.height = "auto";
+        }
+      });
+
+      // Handle Enter key to submit
+      function handleKeyDown(event) {
+        if (event.key === "Enter" && !event.shiftKey) {
+          event.preventDefault();
+          document.getElementById("chat-form").requestSubmit();
+        }
+      }
+
+      // Auto-resize textarea
+      function autoResize(textarea) {
+        textarea.style.height = "auto";
+        textarea.style.height = Math.min(textarea.scrollHeight, 200) + "px";
+      }
+
+      // Show/hide loading states for button
+      document.body.addEventListener("htmx:beforeRequest", function (event) {
+        if (event.detail.target.id === "chat-messages") {
+          const btn = document.querySelector(".send-btn");
+          btn.querySelector(".btn-icon").classList.add("hidden");
+          btn.querySelector(".loading-spinner").classList.remove("hidden");
+
+          document
+            .getElementById("typing-indicator")
+            .classList.remove("hidden");
+          document.getElementById("chat-container").scrollTop =
+            document.getElementById("chat-container").scrollHeight;
+        }
+      });
+
+      document.body.addEventListener("htmx:afterRequest", function (event) {
+        if (event.detail.target.id === "chat-messages") {
+          const btn = document.querySelector(".send-btn");
+          btn.querySelector(".btn-icon").classList.remove("hidden");
+          btn.querySelector(".loading-spinner").classList.add("hidden");
+
+          document.getElementById("typing-indicator").classList.add("hidden");
+        }
+      });
+    </script>
+  </body>
+</html>

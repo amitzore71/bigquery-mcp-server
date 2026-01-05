@@ -1,0 +1,21 @@
+[project]
+name = "bigquery-mcp-server"
+version = "0.1.0"
+description = "BigQuery MCP Server with AI Chat Client"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "google-cloud-bigquery>=3.39.0",
+    "fastmcp>=2.0.0",
+    # Client dependencies
+    "fastapi>=0.109.0",
+    "uvicorn[standard]>=0.27.0",
+    "python-multipart>=0.0.6",
+    "jinja2>=3.1.2",
+    "google-genai",
+    "mcp>=1.0.0",
+]
+
+[project.scripts]
+mcp-server = "main:mcp.run"
+client = "client.app:main"
