@@ -1,8 +1,3 @@
-"""
-BigQuery MCP Chat Client - A clean FastAPI + HTMX chat application
-for querying BigQuery attendance data using natural language.
-"""
-
 import asyncio
 import html
 import importlib.util
@@ -11,7 +6,7 @@ import os
 import re
 import sys
 from datetime import datetime
-from typing import Any, Optional
+from typing import Optional
 
 import uvicorn
 from fastapi import FastAPI, Form, Request
@@ -81,13 +76,10 @@ MCP_TOOLS = [
 # =============================================================================
 
 class MCPClient:
-    """Direct client that imports and calls MCP tools from main.py."""
-    
     def __init__(self):
         self._module = None
         
     def _load_module(self):
-        """Lazily load the MCP server module."""
         if self._module is None:
             spec = importlib.util.spec_from_file_location("mcp_server", MCP_SERVER_SCRIPT)
             self._module = importlib.util.module_from_spec(spec)
@@ -96,7 +88,6 @@ class MCPClient:
         return self._module
     
     def call_tool(self, tool_name: str, arguments: dict) -> dict:
-        """Call an MCP tool and return the result."""
         try:
             module = self._load_module()
             
@@ -105,7 +96,6 @@ class MCPClient:
             
             func = getattr(module, tool_name)
             
-            # Handle FastMCP's FunctionTool wrapper - the actual function is in .fn
             if hasattr(func, 'fn') and callable(func.fn):
                 func = func.fn
             elif hasattr(func, '_func') and callable(func._func):
@@ -120,7 +110,6 @@ class MCPClient:
             return {"status": "error", "message": f"Tool execution failed: {str(e)}"}
     
     def get_tools_description(self) -> str:
-        """Get a formatted description of available tools for the LLM."""
         lines = []
         for tool in MCP_TOOLS:
             params = ""
@@ -142,7 +131,6 @@ mcp_client = MCPClient()
 # =============================================================================
 
 def configure_gemini():
-    """Configure and return Gemini client."""
     if not GEMINI_API_KEY:
         print("⚠️ Warning: GEMINI_API_KEY not set.")
         return None
@@ -202,8 +190,6 @@ User: "Attendance by school for today"
 # =============================================================================
 
 def extract_response_text(response) -> Optional[str]:
-    """Safely extract text from a Gemini response."""
-    # Try direct text accessor
     try:
         if hasattr(response, 'text'):
             return response.text
@@ -225,16 +211,11 @@ def extract_response_text(response) -> Optional[str]:
 
 
 def extract_tool_call(message: str) -> Optional[dict]:
-    """Extract tool call JSON from message. Supports multiple formats."""
-    
     patterns = [
-        # Format 1: ```tool_call block
         (r'```tool_call\s*\n?(.*?)\n?```', 1),
-        # Format 2: ```json block with tool/arguments
         (r'```json\s*\n?(.*?)\n?```', 1),
-        # Format 3: Generic code block
+        (r'```json\s*\n?(.*?)\n?```', 1),
         (r'```\s*\n?(.*?)\n?```', 1),
-        # Format 4: Plain JSON object
         (r'(\{[^{}]*"tool"[^{}]*"arguments"[^{}]*\{[^{}]*\}[^{}]*\})', 1),
     ]
     
@@ -252,7 +233,6 @@ def extract_tool_call(message: str) -> Optional[dict]:
 
 
 def execute_tool_call(message: str) -> Optional[dict]:
-    """Extract and execute tool call from message."""
     tool_call = extract_tool_call(message)
     if tool_call:
         tool_name = tool_call.get("tool")
@@ -263,18 +243,14 @@ def execute_tool_call(message: str) -> Optional[dict]:
 
 
 def process_with_gemini(user_message: str, session_id: str) -> str:
-    """Process user message with Gemini and MCP tools."""
     if not gemini_client:
         return "❌ Gemini API key not configured. Please set GEMINI_API_KEY environment variable."
     
-    # Get chat history
     history = chat_sessions.get(session_id, [])
     
-    # Build prompt
     tools_description = mcp_client.get_tools_description()
     system = SYSTEM_PROMPT.format(tools_description=tools_description)
     
-    # Add recent history
     history_text = ""
     for msg in history[-4:]:
         history_text += f"\n{msg['role'].title()}: {msg['content']}"
@@ -766,11 +742,8 @@ async def delete_session(request: Request, session_id: str):
 
 @app.post("/clear-chat", response_class=HTMLResponse)
 async def clear_chat(request: Request):
-    """Clear messages in the current session and create a new one."""
-    # Create a new session ID
     new_session_id = str(datetime.now().timestamp())
     
-    # Redirect to home with new session
     return HTMLResponse(status_code=200, headers={"HX-Redirect": f"/?session_id={new_session_id}"})
 
 
