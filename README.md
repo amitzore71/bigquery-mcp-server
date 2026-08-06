@@ -1,142 +1,178 @@
-# BigQuery MCP Server & Chat Client
+# BigQuery SaaS — Multi-tenant MCP Platform
 
-A natural language interface for querying BigQuery data using Google's Gemini AI and the Model Context Protocol (MCP). This project enables conversational data analysis without requiring SQL knowledge.
+Professional multi-tenant SaaS for natural-language analytics over Google BigQuery. Built around a typed **Kind system** (Kubernetes/GCP-style resource taxonomy), API-key auth, plan-based usage metering, an MCP tool server, and an HTMX chat UI powered by Gemini.
 
-## Overview
+## Architecture
 
-This project consists of two main components:
+```
+┌──────────────────┐     API key      ┌─────────────────────────────────────┐
+│  Chat UI (HTMX)  │ ───────────────► │  FastAPI SaaS API  (/v1/*)          │
+│  OpenAPI /docs   │                  │  Tenants · Workspaces · Sessions    │
+└──────────────────┘                  │  Query · Kinds · Usage metering     │
+                                      └──────────────┬──────────────────────┘
+                                                     │
+                      ┌──────────────────────────────┼──────────────────────┐
+                      ▼                              ▼                      ▼
+               Kind Registry                  Chat + Gemini           MCP Tools
+               Tenant / User                  tool-calling            list_tables
+               Workspace / ApiKey             BigQuery client         execute_query
+               Connection / Session           per DataConnection      describe_table
+               Subscription / Usage                                   …
+```
 
-1. **MCP Server** (`main.py`) - A FastMCP-based server that provides tools for interacting with BigQuery databases
-2. **Chat Client** (`client/`) - A web-based chat interface powered by Google's Gemini AI for natural language queries
+### Kind system
 
-The system uses the Model Context Protocol to enable AI-driven interactions with your BigQuery tables.
+Every platform object is a **Resource** with:
 
-## Features
+| Field | Description |
+|-------|-------------|
+| `kind` | Typed enum (`tenant`, `user`, `workspace`, `data_connection`, `api_key`, `chat_session`, `message`, `subscription`, `usage_event`, `query_job`) |
+| `id` | `{kind}_{ulid\|uuid}` e.g. `tenant_01HXYZ…` |
+| `tenant_id` | Isolation boundary (null only for `tenant` itself) |
+| `status` | `active` · `suspended` · `deleted` |
+| `labels` / `annotations` | Free-form metadata |
+| `created_at` / `updated_at` | UTC timestamps |
 
-- Natural language querying of BigQuery data
-- Automatic data visualizations (charts, graphs, KPIs)
-- Multi-table query support without manual SQL
-- Attendance pattern analysis and school statistics
-- Modern, professional web interface
+`KindRegistry` maps each kind to its Pydantic model and schema metadata.
 
-## Quick Start
+### SaaS features
+
+- **Multi-tenancy** — strict tenant isolation in `MemoryStore`
+- **API keys** — `bqs_{env}_{secret}`; only SHA-256 hash stored
+- **Scopes** — `chat:read|write`, `query:execute`, `admin:read|write`, `*`
+- **Plans** — Free / Pro / Enterprise with daily query + resource limits
+- **Usage metering** — daily counters with automatic period reset
+- **Demo bootstrap** — local dev tenant + API key printed on startup
+
+## Quick start
 
 ### Prerequisites
 
-- Python 3.13 or newer
-- Google Cloud project with BigQuery enabled
-- Gemini API key (obtain from [Google AI Studio](https://aistudio.google.com/app/apikey))
-- BigQuery service account credentials
+- Python 3.13+
+- [uv](https://github.com/astral-sh/uv)
+- Gemini API key ([Google AI Studio](https://aistudio.google.com/app/apikey))
+- Optional: BigQuery service account JSON for live queries
 
-### Installation
+### Install
 
-1. **Navigate to the project directory:**
+```bash
+uv sync --all-groups
+```
 
-   ```bash
-   cd d:\.\bigquery-mcp-server
-   ```
+### Configure
 
-2. **Configure environment variables:**
+```powershell
+$env:GEMINI_API_KEY = "your-key"
+$env:GCP_PROJECT_ID = "your-gcp-project"   # optional
+$env:DATASET_ID = "school_data"            # optional
+```
 
-   ```powershell
-   $env:GEMINI_API_KEY = "your-api-key-here"
-   ```
+Place `service-account.json` in the repo root (gitignored) for BigQuery access.
 
-3. **Install dependencies:**
+### Run the SaaS API + chat UI
 
-   ```bash
-   uv sync
-   ```
+```bash
+uv run uvicorn bqsaas.api.app:app --app-dir src --reload --host 0.0.0.0 --port 8000
+```
 
-4. **Add service account credentials:**
+On startup the demo tenant is bootstrapped and a **one-time API key** is printed:
 
-   Place your `service-account.json` file in the root directory for BigQuery authentication.
+```
+============================================================
+  BigQuery SaaS demo tenant bootstrapped
+  API key: bqs_dev_…
+  Use: Authorization: Bearer <api_key>
+  Docs: http://localhost:8000/docs
+============================================================
+```
 
-5. **Start the MCP server:**
+| URL | Purpose |
+|-----|---------|
+| http://localhost:8000/ | Chat UI (auto-uses demo API key cookie) |
+| http://localhost:8000/docs | OpenAPI |
+| http://localhost:8000/health | Liveness |
+| http://localhost:8000/v1/kinds | Kind registry |
 
-   ```bash
-   uv run python main.py
-   ```
+### Run the MCP server (stdio)
 
-6. **Launch the chat client (in a separate terminal):**
+```bash
+uv run python main.py
+# or
+uv run python -m bqsaas
+```
 
-   ```bash
-   uv run uvicorn client.app:app --reload --host 0.0.0.0 --port 8000
-   ```
+## REST API (selected)
 
-7. **Access the application:**
-   ```
-   http://localhost:8000
-   ```
+Auth: `Authorization: Bearer bqs_…` or `X-API-Key: bqs_…`
 
-## Project Structure
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/v1/me` | Current user, tenant, plan, usage |
+| `GET` | `/v1/kinds` | Registered resource kinds |
+| `GET/POST` | `/v1/workspaces` | Workspace CRUD |
+| `GET` | `/v1/connections` | BigQuery connections |
+| `GET/POST` | `/v1/sessions` | Chat sessions |
+| `POST` | `/v1/sessions/{id}/messages` | AI chat turn |
+| `POST` | `/v1/query` | Execute SQL (quota-enforced) |
+| `POST` | `/v1/auth/api-keys` | Mint API key (admin) |
+
+## Project layout
 
 ```
 bigquery-mcp-server/
-├── main.py                    # MCP server with BigQuery tools
-├── client/                    # Chat web application
-│   ├── app.py                # FastAPI backend + Gemini integration
-│   ├── templates/            # HTML templates
-│   └── static/               # CSS and other static files
-├── service-account.json      # BigQuery credentials (do not commit)
-├── pyproject.toml            # Python dependencies
-└── README.md                 # This file
+├── main.py                 # MCP stdio entrypoint
+├── pyproject.toml
+├── client/                 # HTMX templates + static assets
+│   ├── templates/
+│   ├── static/
+│   └── app.py              # thin re-export of SaaS app
+├── src/bqsaas/
+│   ├── kinds/              # Kind enum, Resource, KindRegistry
+│   ├── models/             # Tenant, User, Workspace, …
+│   ├── storage/            # MemoryStore (tenant-isolated)
+│   ├── auth/               # API keys, scopes, AuthContext
+│   ├── billing/            # Plans + UsageMeter
+│   ├── services/           # Bootstrap, chat, tenant, connection
+│   ├── mcp/                # Pure BigQuery tools + FastMCP server
+│   ├── ai/                 # Gemini tool-calling pipeline
+│   └── api/                # FastAPI app + routes + web UI
+└── tests/                  # pytest suite (mocked BQ/Gemini)
 ```
 
-## Example Queries
+## Tests
 
-The system supports natural language questions such as:
+```bash
+uv run pytest tests/ -q
+```
 
-- "Show me all the tables we have"
-- "What's in the attendance table?"
-- "How many students are in each school?"
-- "What's the attendance rate for last week?"
-- "Give me a breakdown of attendance by school"
-- "Show me some sample data from the schools table"
+All external services (BigQuery, Gemini) are mocked. Tests cover kinds, storage isolation, auth, billing quotas, MCP tool validation, services, and HTTP API smoke paths.
 
-The AI interprets your questions and retrieves the appropriate data automatically.
+## Environment variables
 
-## System Architecture
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `GEMINI_API_KEY` | — | Required for AI chat |
+| `GCP_PROJECT_ID` | `practice-project-481414` | Default BQ project |
+| `DATASET_ID` | `school_data` | Default dataset |
+| `SERVICE_ACCOUNT_PATH` | `service-account.json` | BQ credentials path |
+| `APP_ENV` | `development` | `production` tightens CORS |
+| `SECRET_KEY` | dev default | Token signing secret |
 
-1. User submits a question via the chat interface
-2. Message is sent to Gemini AI for interpretation
-3. Gemini determines if BigQuery access is required
-4. If needed, appropriate MCP tools are invoked
-5. MCP server executes queries on BigQuery
-6. Results are returned to Gemini
-7. Gemini formats the response (including visualizations if applicable)
-8. Formatted response is displayed in the chat interface
+## Plans
 
-## Configuration
+| Plan | Daily queries | Workspaces | Connections | Users |
+|------|---------------|------------|-------------|-------|
+| Free | 100 | 1 | 1 | 3 |
+| Pro | 10,000 | 10 | 10 | 50 |
+| Enterprise | 1,000,000 | high | high | high |
 
-The following environment variables can be configured:
+## Security notes
 
-- `GCP_PROJECT_ID` - Google Cloud project ID
-- `DATASET_ID` - BigQuery dataset name
-- `GEMINI_API_KEY` - Gemini API key (required for chat functionality)
+- Never commit `service-account.json` or raw API keys
+- API keys are hashed at rest (SHA-256); raw value shown only once
+- Table identifiers are validated before SQL construction
+- Query jobs enforce max bytes billed and row caps
 
-## Additional Documentation
+## License
 
-For detailed information about specific components:
-
-- [Server README](./README_SERVER.md) - Comprehensive MCP server documentation
-- [Client README](./client/README.md) - Chat interface details and customization
-
-## Troubleshooting
-
-**Authentication Errors**
-
-- Verify `service-account.json` is in the correct location
-- Confirm service account has appropriate BigQuery permissions
-
-**Chat Not Responding**
-
-- Ensure `GEMINI_API_KEY` environment variable is set
-- Verify MCP server is running
-- Check terminal output for error messages
-
-**JSON Responses Instead of Formatted Output**
-
-- Try rephrasing your question
-- Confirm both server and client are running
-- Check network connectivity
+Proprietary / private — adjust as needed for your organization.

@@ -1,4 +1,4 @@
-"""MCP server entrypoint — multi-tenant BigQuery SaaS."""
+"""``python -m bqsaas`` — run the MCP server on stdio."""
 
 from bqsaas.mcp.server import run
 

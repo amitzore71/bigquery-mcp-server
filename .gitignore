@@ -254,3 +254,14 @@ test_data/
 # Local configuration overrides
 config.local.yaml
 settings.local.py
+
+# Build / packaging artifacts
+*.egg-info/
+src/*.egg-info/
+dist/
+build/
+
+# Coverage / pytest
+.coverage
+htmlcov/
+.pytest_cache/
