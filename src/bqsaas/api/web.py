@@ -75,7 +75,24 @@ def _escape(text: str) -> str:
     return html.escape(text or "")
 
 
+def _coerce_text(value: Any) -> str:
+    """Normalize Gemini/tool payloads to a plain string for markdown rendering."""
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        content = value.get("content")
+        if isinstance(content, str):
+            return content
+        if content is not None:
+            return str(content)
+        return json.dumps(value, indent=2, default=str)
+    return str(value)
+
+
 def extract_visualization(text: str) -> tuple[dict | None, str]:
+    text = _coerce_text(text)
     pattern = r"```visualization\s*\n(.*?)\n```"
     match = re.search(pattern, text, re.DOTALL)
     if match:
@@ -183,6 +200,7 @@ def convert_table_to_html(table_lines: list[str]) -> str:
 
 
 def convert_markdown_to_html(text: str) -> str:
+    text = _coerce_text(text)
     viz_data, text = extract_visualization(text)
     viz_html = ""
     if viz_data:
@@ -400,7 +418,7 @@ async def chat(request: Request, message: str = Form(...)):
         pass
 
     loop = asyncio.get_event_loop()
-    assistant_text = await loop.run_in_executor(
+    result = await loop.run_in_executor(
         None,
         lambda: process_with_gemini(
             message.strip(),
@@ -411,7 +429,22 @@ async def chat(request: Request, message: str = Form(...)):
         ),
     )
 
-    chat_svc.append_message(ctx.tenant_id, session_id, "assistant", assistant_text)
+    # process_with_gemini returns {"status", "content", "tool_call", "tool_result"}
+    assistant_text = _coerce_text(
+        result.get("content", "") if isinstance(result, dict) else result
+    )
+    if not assistant_text:
+        assistant_text = "I couldn't generate a response. Please try again."
+
+    chat_svc.append_message(
+        ctx.tenant_id,
+        session_id,
+        "assistant",
+        assistant_text,
+        metadata={
+            "ai_status": (result or {}).get("status") if isinstance(result, dict) else None,
+        },
+    )
     response_html = convert_markdown_to_html(assistant_text)
 
     html_content = f"""
